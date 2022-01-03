@@ -5,7 +5,7 @@ authors = ["crumblingstatue <radiantstatue@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-egui = { git = "https://github.com/emilk/egui.git", tag = "0.16.1" }
+egui = "0.16.1"
 glu-sys = "0.1.4"
 
 [dependencies.sfml]

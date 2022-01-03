@@ -26,7 +26,6 @@ use sfml::{
 /// This way, you don't have to declare egui as a dependency, and this will be
 /// guaranteed to be the same version as egui-sfml uses.
 ///
-#[cfg_attr(dev, path = "epi::egui")]
 pub use egui;
 
 fn button_conv(button: mouse::Button) -> PointerButton {
