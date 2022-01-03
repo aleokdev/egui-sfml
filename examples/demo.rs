@@ -1,9 +1,9 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use egui_demo_lib::WrapApp;
 use egui_sfml::SfEgui;
-use epi::backend;
-use epi::{App, IntegrationInfo, RepaintSignal, TextureAllocator};
+use epi::{backend, Frame};
+use epi::{backend::RepaintSignal, App, IntegrationInfo, TextureAllocator};
 use sfml::{
     graphics::{Color, Rect, RenderTarget, RenderWindow, View},
     window::{Event, Style, VideoMode},
@@ -18,14 +18,11 @@ impl RepaintSignal for RepaintSig {
 struct TexAlloc {}
 
 impl TextureAllocator for TexAlloc {
-    fn alloc_srgba_premultiplied(
-        &mut self,
-        _size: (usize, usize),
-        _srgba_pixels: &[egui::Color32],
-    ) -> egui::TextureId {
+    fn alloc(&self, image: epi::Image) -> epi::egui::TextureId {
         todo!()
     }
-    fn free(&mut self, _id: egui::TextureId) {
+
+    fn free(&self, id: epi::egui::TextureId) {
         todo!()
     }
 }
@@ -38,7 +35,7 @@ fn main() {
     rw.set_vertical_sync_enabled(true);
     let mut app_out = backend::AppOutput::default();
     let mut ta = TexAlloc {};
-    let mut frame = backend::FrameBuilder {
+    let mut frame = Frame(Arc::new(Mutex::new(backend::FrameData {
         info: IntegrationInfo {
             cpu_usage: None,
             native_pixels_per_point: None,
@@ -46,11 +43,9 @@ fn main() {
             web_info: None,
             name: "egui-sfml",
         },
-        output: &mut app_out,
+        output: app_out,
         repaint_signal: Arc::new(RepaintSig {}),
-        tex_allocator: &mut ta,
-    }
-    .build();
+    })));
     let mut sfegui = SfEgui::new(&rw);
     while rw.is_open() {
         while let Some(ev) = rw.poll_event() {

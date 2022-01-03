@@ -6,8 +6,10 @@
 
 use std::mem;
 
-use egui::epaint::ClippedShape;
-use egui::{CtxRef, Event as EguiEv, Modifiers, Output, PointerButton, Pos2, RawInput, TextureId};
+use crate::egui::epaint::ClippedShape;
+use crate::egui::{
+    CtxRef, Event as EguiEv, Modifiers, Output, PointerButton, Pos2, RawInput, TextureId,
+};
 use sfml::graphics::blend_mode::Factor;
 use sfml::graphics::{
     BlendMode, Color, PrimitiveType, RenderStates, RenderTarget, RenderWindow, Texture, Vertex,
@@ -24,6 +26,7 @@ use sfml::{
 /// This way, you don't have to declare egui as a dependency, and this will be
 /// guaranteed to be the same version as egui-sfml uses.
 ///
+#[cfg_attr(dev, path = "epi::egui")]
 pub use egui;
 
 fn button_conv(button: mouse::Button) -> PointerButton {
@@ -36,7 +39,7 @@ fn button_conv(button: mouse::Button) -> PointerButton {
 }
 
 fn key_conv(code: Key) -> Option<egui::Key> {
-    use egui::Key as EKey;
+    use crate::egui::Key as EKey;
     Some(match code {
         Key::Down => EKey::ArrowDown,
         Key::Left => EKey::ArrowLeft,
@@ -187,7 +190,7 @@ fn make_raw_input(window: &RenderWindow) -> RawInput {
     }
 }
 
-fn egui_tex_to_rgba_vec(tex: &egui::Texture) -> Vec<u8> {
+fn egui_tex_to_rgba_vec(tex: &egui::FontImage) -> Vec<u8> {
     let srgba = tex.srgba_pixels(1.0);
     let mut vec = Vec::new();
     for c in srgba {
@@ -197,7 +200,7 @@ fn egui_tex_to_rgba_vec(tex: &egui::Texture) -> Vec<u8> {
 }
 
 fn get_new_texture(ctx: &egui::CtxRef) -> SfBox<Texture> {
-    let egui_tex = ctx.texture();
+    let egui_tex = ctx.font_image();
     let mut tex = Texture::new().unwrap();
     assert!(
         tex.create(egui_tex.width as u32, egui_tex.height as u32),
