@@ -11,6 +11,7 @@ glu-sys = "0.1.4"
 [dependencies.sfml]
 git = "https://github.com/jeremyletang/rust-sfml.git"
 default-features = false
+rev = "19b5e1082fbb58d7c1646eef32cb6fd01353c9d3"
 features = ["graphics"]
 
 [dev-dependencies]
