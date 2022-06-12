@@ -7,11 +7,9 @@ edition = "2018"
 [dependencies]
 egui = "0.18.1"
 glu-sys = "0.1.4"
-
-[dependencies.sfml]
-git = "https://github.com/alexdevteam/rust-sfml"
-features = ["graphics"]
-default-features = false
+sfml = { git = "https://github.com/aleokdev/rust-sfml", rev = "ead7a9d992de35921237dfb9daa02a70750f1203", features = [
+    "graphics",
+], default-features = false }
 
 [dev-dependencies]
 egui_demo_lib = "0.18.0"
