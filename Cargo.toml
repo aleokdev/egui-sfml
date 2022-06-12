@@ -5,7 +5,7 @@ authors = ["crumblingstatue <radiantstatue@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-egui = "0.16.1"
+egui = "0.18.1"
 glu-sys = "0.1.4"
 
 [dependencies.sfml]
@@ -15,5 +15,4 @@ rev = "106f195e9c2cc44e4808c9832a9671d3d1fc44ee"
 default-features = false
 
 [dev-dependencies]
-egui_demo_lib = "0.16.0"
-epi = "0.16.0"
+egui_demo_lib = "0.18.0"

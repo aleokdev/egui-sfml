@@ -4,11 +4,13 @@
 
 #![warn(missing_docs)]
 
+use std::collections::HashMap;
 use std::mem;
 
-use crate::egui::epaint::ClippedShape;
-use crate::egui::{
-    CtxRef, Event as EguiEv, Modifiers, Output, PointerButton, Pos2, RawInput, TextureId,
+use egui::epaint::Primitive;
+use egui::{
+    Context, Event as EguiEv, FullOutput, ImageData, Modifiers, PointerButton, Pos2, RawInput,
+    TextureId,
 };
 use sfml::graphics::blend_mode::Factor;
 use sfml::graphics::{
@@ -20,13 +22,8 @@ use sfml::{
     SfBox,
 };
 
-#[doc(inline)]
-/// Re-export of egui. Use this to access egui functionality.
-///
-/// This way, you don't have to declare egui as a dependency, and this will be
-/// guaranteed to be the same version as egui-sfml uses.
-///
 pub use egui;
+pub use sfml;
 
 fn button_conv(button: mouse::Button) -> PointerButton {
     match button {
@@ -174,6 +171,13 @@ fn handle_event(raw_input: &mut egui::RawInput, event: &sfml::window::Event) {
                 raw_input.events.push(EguiEv::Text(unicode.to_string()));
             }
         }
+        Event::MouseWheelScrolled { delta, .. } => {
+            if sfml::window::Key::LControl.is_pressed() {
+                raw_input
+                    .events
+                    .push(EguiEv::Zoom(if delta > 0.0 { 1.1 } else { 0.9 }));
+            }
+        }
         _ => {}
     }
 }
@@ -187,35 +191,6 @@ fn make_raw_input(window: &RenderWindow) -> RawInput {
         }),
         ..Default::default()
     }
-}
-
-fn egui_tex_to_rgba_vec(tex: &egui::FontImage) -> Vec<u8> {
-    let srgba = tex.srgba_pixels(1.0);
-    let mut vec = Vec::new();
-    for c in srgba {
-        vec.extend_from_slice(&c.to_array());
-    }
-    vec
-}
-
-fn get_new_texture(ctx: &egui::CtxRef) -> SfBox<Texture> {
-    let egui_tex = ctx.font_image();
-    let mut tex = Texture::new().unwrap();
-    assert!(
-        tex.create(egui_tex.width as u32, egui_tex.height as u32),
-        "Failed to create texture"
-    );
-    let tex_pixels = egui_tex_to_rgba_vec(&egui_tex);
-    unsafe {
-        tex.update_from_pixels(
-            &tex_pixels,
-            egui_tex.width as u32,
-            egui_tex.height as u32,
-            0,
-            0,
-        );
-    }
-    tex
 }
 
 /// A source for egui user textures.
@@ -250,9 +225,10 @@ impl UserTexSource for DummyTexSource {
 
 /// `Egui` integration for SFML.
 pub struct SfEgui {
-    ctx: CtxRef,
+    ctx: Context,
     raw_input: RawInput,
-    egui_result: (Output, Vec<ClippedShape>),
+    egui_result: FullOutput,
+    textures: HashMap<TextureId, SfBox<Texture>>,
 }
 
 impl SfEgui {
@@ -262,8 +238,9 @@ impl SfEgui {
     pub fn new(window: &RenderWindow) -> Self {
         Self {
             raw_input: make_raw_input(window),
-            ctx: CtxRef::default(),
+            ctx: Context::default(),
             egui_result: Default::default(),
+            textures: HashMap::default(),
         }
     }
     /// Convert an SFML event into an egui event and add it for later use by egui.
@@ -275,11 +252,22 @@ impl SfEgui {
     /// Does an egui frame with a user supplied ui function.
     ///
     /// The `f` parameter is a user supplied ui function that does the desired ui
-    pub fn do_frame(&mut self, f: impl FnOnce(&CtxRef)) {
+    pub fn do_frame(&mut self, f: impl FnOnce(&Context)) {
         self.egui_result = self.ctx.run(self.raw_input.take(), f);
-        let clip_str = &self.egui_result.0.copied_text;
+        let clip_str = &self.egui_result.platform_output.copied_text;
         if !clip_str.is_empty() {
             clipboard::set_string(clip_str);
+        }
+        for (id, delta) in &self.egui_result.textures_delta.set {
+            let [w, h] = delta.image.size();
+            let tex = self.textures.entry(*id).or_insert_with(|| {
+                let mut tex = Texture::new().unwrap();
+                if !tex.create(w as u32, h as u32) {
+                    panic!();
+                }
+                tex
+            });
+            update_tex_from_delta(tex, delta);
         }
     }
     /// Draw the ui to a `RenderWindow`.
@@ -293,35 +281,82 @@ impl SfEgui {
         draw(
             window,
             &self.ctx,
-            mem::take(&mut self.egui_result.1),
+            mem::take(&mut self.egui_result.shapes),
             user_tex_src.unwrap_or(&mut DummyTexSource::default()),
+            &self.textures,
         )
     }
     /// Returns a handle to the egui context
     ///
     /// `CtxRef` can be cloned, but beware that it will be outdated after a call to
     /// [`do_frame`](Self::do_frame)
-    pub fn context(&self) -> &CtxRef {
+    pub fn context(&self) -> &Context {
         &self.ctx
+    }
+}
+
+fn update_tex_from_delta(tex: &mut SfBox<Texture>, delta: &egui::epaint::ImageDelta) {
+    let mut x = 0;
+    let mut y = 0;
+    let [w, h] = delta.image.size();
+    if let Some([xx, yy]) = delta.pos {
+        x = xx as u32;
+        y = yy as u32;
+    }
+    match &delta.image {
+        ImageData::Color(color) => {
+            let srgba: Vec<u8> = color.pixels.iter().flat_map(|c32| c32.to_array()).collect();
+            unsafe {
+                tex.update_from_pixels(&srgba, w as u32, h as u32, x, y);
+            }
+        }
+        ImageData::Font(font_image) => {
+            let srgba: Vec<u8> = font_image
+                .srgba_pixels(1.0)
+                .flat_map(|c32| c32.to_array())
+                .collect();
+            if w > tex.size().x as usize || h > tex.size().y as usize {
+                // Resize texture
+                let ok = tex.create(w as u32, h as u32);
+                if !ok {
+                    panic!("Failed to resize texture");
+                }
+            }
+            unsafe {
+                tex.update_from_pixels(&srgba, w as u32, h as u32, x, y);
+            }
+        }
     }
 }
 
 fn draw(
     window: &mut RenderWindow,
-    egui_ctx: &egui::CtxRef,
+    egui_ctx: &egui::Context,
     shapes: Vec<egui::epaint::ClippedShape>,
     user_tex_source: &mut dyn UserTexSource,
+    textures: &HashMap<TextureId, SfBox<Texture>>,
 ) {
-    let tex = get_new_texture(egui_ctx);
     window.set_active(true);
     unsafe {
         glu_sys::glEnable(glu_sys::GL_SCISSOR_TEST);
     }
     let mut vertices = Vec::new();
-    let (egui_tex_w, egui_tex_h) = (tex.size().x as f32, tex.size().y as f32);
-    for egui::ClippedMesh(rect, mesh) in egui_ctx.tessellate(shapes) {
+    for egui::ClippedPrimitive {
+        clip_rect,
+        primitive,
+    } in egui_ctx.tessellate(shapes)
+    {
+        let mesh = if let Primitive::Mesh(mesh) = primitive {
+            mesh
+        } else {
+            continue;
+        };
         let (tw, th, tex) = match mesh.texture_id {
-            TextureId::Egui => (egui_tex_w, egui_tex_h, &*tex),
+            TextureId::Managed(id) => {
+                let tex = &*textures[&TextureId::Managed(id)];
+                let (egui_tex_w, egui_tex_h) = (tex.size().x as f32, tex.size().y as f32);
+                (egui_tex_w, egui_tex_h, &*tex)
+            }
             TextureId::User(id) => user_tex_source.get_texture(id),
         };
         for idx in mesh.indices {
@@ -348,10 +383,10 @@ fn draw(
         let height_in_pixels = win_size.y;
         // Code copied from egui_glium (https://github.com/emilk/egui)
         // Transform clip rect to physical pixels:
-        let clip_min_x = pixels_per_point * rect.min.x;
-        let clip_min_y = pixels_per_point * rect.min.y;
-        let clip_max_x = pixels_per_point * rect.max.x;
-        let clip_max_y = pixels_per_point * rect.max.y;
+        let clip_min_x = pixels_per_point * clip_rect.min.x;
+        let clip_min_y = pixels_per_point * clip_rect.min.y;
+        let clip_max_x = pixels_per_point * clip_rect.max.x;
+        let clip_max_y = pixels_per_point * clip_rect.max.y;
 
         // Make sure clip rect can fit within a `u32`:
         let clip_min_x = clip_min_x.clamp(0.0, width_in_pixels as f32);
